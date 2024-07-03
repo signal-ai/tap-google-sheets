@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 
-import sys
 import json
-import argparse
+import sys
+
 import singer
-from singer import metadata, utils
+
 from tap_google_sheets.client import GoogleClient
 from tap_google_sheets.discover import discover
 from tap_google_sheets.sync import sync
@@ -12,9 +12,6 @@ from tap_google_sheets.sync import sync
 LOGGER = singer.get_logger()
 
 REQUIRED_CONFIG_KEYS = [
-    'client_id',
-    'client_secret',
-    'refresh_token',
     'spreadsheet_id',
     'start_date',
     'user_agent'
@@ -33,11 +30,12 @@ def main():
 
     parsed_args = singer.utils.parse_args(REQUIRED_CONFIG_KEYS)
 
-    with GoogleClient(parsed_args.config['client_id'],
-                      parsed_args.config['client_secret'],
-                      parsed_args.config['refresh_token'],
-                      parsed_args.config.get('request_timeout'),
-                      parsed_args.config['user_agent']
+    with GoogleClient(client_id=parsed_args.config.get('client_id'),
+                      client_secret=parsed_args.config.get('client_secret'),
+                      refresh_token=parsed_args.config.get('refresh_token'),
+                      request_timeout=parsed_args.config.get('request_timeout'),
+                      user_agent=parsed_args.config['user_agent'],
+                      api_key=parsed_args.config.get('api_key')
                       ) as client:
 
         state = {}

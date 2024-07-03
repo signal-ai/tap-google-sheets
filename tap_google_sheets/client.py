@@ -1,11 +1,11 @@
-from datetime import datetime, timedelta
 from collections import OrderedDict
+from datetime import datetime, timedelta
+
 import backoff
 import requests
 import singer
-from singer import metrics
-from singer import utils
-from requests.exceptions import Timeout, ConnectionError
+from requests.exceptions import ConnectionError, Timeout
+from singer import metrics, utils
 
 BASE_URL = 'https://www.googleapis.com'
 GOOGLE_TOKEN_URI = 'https://oauth2.googleapis.com/token'
@@ -132,19 +132,24 @@ def raise_for_error(response):
 
 class GoogleClient: # pylint: disable=too-many-instance-attributes
     def __init__(self,
-                 client_id,
-                 client_secret,
-                 refresh_token,
+                 client_id=None,
+                 client_secret=None,
+                 refresh_token=None,
                  request_timeout=REQUEST_TIMEOUT,
-                 user_agent=None):
+                 user_agent=None,
+                 api_key=None,):
         self.__client_id = client_id
         self.__client_secret = client_secret
         self.__refresh_token = refresh_token
+        self.__api_key = api_key
         self.__user_agent = user_agent
         self.__access_token = None
         self.__expires = None
         self.__session = requests.Session()
         self.base_url = None
+
+        if not (client_id and client_secret and refresh_token) or api_key:
+            raise ValueError("No credentials provided, set (client_id and client_secret and refresh_token) or api_key")
 
         # if request_timeout is other than 0,"0" or "" then use request_timeout
         if request_timeout and float(request_timeout):
@@ -173,7 +178,7 @@ class GoogleClient: # pylint: disable=too-many-instance-attributes
     def get_access_token(self):
         # The refresh_token never expires and may be used many times to generate each access_token
         # Since the refresh_token does not expire, it is not included in get access_token response
-        if self.__access_token is not None and self.__expires > datetime.utcnow():
+        if self.__api_key or (self.__access_token is not None and self.__expires > datetime.utcnow()):
             return
 
         headers = {}
@@ -205,7 +210,7 @@ class GoogleClient: # pylint: disable=too-many-instance-attributes
 
     # Backoff request for 5 times at an interval of 10 seconds when we get Timeout error
     @backoff.on_exception(backoff.constant,
-                          (Timeout), 
+                          (Timeout),
                           max_tries=5,
                           interval=10,
                           jitter=None) # Interval value not consistent if jitter not None
@@ -236,7 +241,12 @@ class GoogleClient: # pylint: disable=too-many-instance-attributes
 
         if 'headers' not in kwargs:
             kwargs['headers'] = {}
-        kwargs['headers']['Authorization'] = 'Bearer {}'.format(self.__access_token)
+        if self.__access_token:
+            kwargs['headers']['Authorization'] = 'Bearer {}'.format(self.__access_token)
+        elif self.__api_key:
+            params =(kwargs["params"] or {}).copy()
+            params["key"] = self.__api_key
+            kwargs["params"] = params
 
         if self.__user_agent:
             kwargs['headers']['User-Agent'] = self.__user_agent
@@ -245,7 +255,7 @@ class GoogleClient: # pylint: disable=too-many-instance-attributes
             kwargs['headers']['Content-Type'] = 'application/json'
 
         with metrics.http_request_timer(endpoint) as timer:
-            
+
             response = self.__session.request(method, url, timeout=self.request_timeout, **kwargs)
             timer.tags[metrics.Tag.http_status_code] = response.status_code
 
